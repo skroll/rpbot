@@ -58,7 +58,6 @@ main(int argc, const char **argv)
 	irc_init(&istate);
 
 	while (1) {
-#define READ_BUF_SZ 2048
 		struct rp_events evs;
 		memset(&evs, 0, sizeof(evs));
 
