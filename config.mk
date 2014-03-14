@@ -5,7 +5,7 @@ MANPREFIX = ${PREFIX}/share/man
 
 INCS = -I.
 
-LIBS =
+LIBS = -lanl
 
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_GNU_SOURCE
 CFLAGS += -g -std=c99 -pedantic -Wall -Wvariadic-macros -Os ${INCS} ${CPPFLAGS}

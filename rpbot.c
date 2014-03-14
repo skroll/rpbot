@@ -77,6 +77,11 @@ main(int argc, const char **argv)
 		if (evs.timeout) {
 		}
 
+		if (evs.sig_int) {
+			fprintf(stderr, "SIGINT received, terminating...\n");
+			abort();
+		}
+
 		while (fifo_count(rp_read_buf) > 0) {
 			void *p;
 			size_t len = fifo_raw_r(&rp_read_buf, &p);

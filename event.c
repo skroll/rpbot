@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/epoll.h>
+#include <sys/signalfd.h>
+#include <signal.h>
 
 #include "rpbot.h"
 #include "event.h"
@@ -16,29 +18,36 @@
 fifo_buffer_t rp_write_buf;
 fifo_buffer_t rp_read_buf;
 
-// the next time the client should try to connect to the server
-static uintptr_t rp_next_connect_msec = 0;
-
-static int sfd = -1; // the socket fd
-static int efd = -1; // the epoll fd
-
 static struct epoll_event ctl_event; // global struct for epoll_ctl
 static struct epoll_event events[MAX_EVENTS];
 
-// addrinfo list
-static struct addrinfo *res0 = NULL;
-static struct addrinfo *res = NULL;
-
-// connection state
-enum {
-	RP_STATE_DISCONNECTED = 0,
-	RP_STATE_CONNECTING,
-	RP_STATE_CONNECTED,
-} rp_state = RP_STATE_DISCONNECTED;
-
-// context information about the event system, used to decide which
-// events to listen for on the socket.
+// context information about the event system, used to decide which events
+// to listen for on the socket.
 static struct {
+	// next time the client should try to connect
+	uintptr_t next_conn_msec;
+
+	// when the client should stop trying to connect
+	uintptr_t conn_timeout_msec;
+
+	// addrinfo list
+	struct addrinfo *res0;
+	struct addrinfo *res;
+
+	// connection state
+	enum {
+		DISCONNECTED = 0,
+		RESOLVING,
+		RESOLVED,
+		CONNECTING,
+		CONNECTED,
+	} state;
+
+	int addr_sig; // address resolution signal
+	int sock_fd; // socket fd
+	int sig_fd; // signal event fd
+	int epoll_fd; // epoll fd
+
 	unsigned int read_full:1; // whether or not the read buf was full
 	unsigned int write_full:1; // whether or not the write buf was full
 } ctx;
@@ -47,12 +56,75 @@ static struct {
 static void
 rp_freeaddrinfo(void)
 {
-	if (res0) {
-		freeaddrinfo(res0);
+	if (ctx.res0) {
+		freeaddrinfo(ctx.res0);
 	}
 
-	res0 = NULL;
-	res = NULL;
+	ctx.res0 = NULL;
+	ctx.res = NULL;
+}
+
+// find the next available RT signal
+static int
+find_rt_signal()
+{
+	struct sigaction act;
+	int sig = SIGRTMIN;
+
+	while (sig <= SIGRTMAX) {
+		if (sigaction(sig, NULL, &act) != 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+		} else {
+			if (act.sa_flags & SA_SIGINFO) {
+				if (act.sa_sigaction == NULL) {
+					return sig;
+				}
+			} else {
+				if (act.sa_handler == SIG_DFL) {
+					return sig;
+				}
+			}
+		}
+
+		sig++;
+	}
+
+	return -1;
+}
+
+// initialize signal handling
+static int
+sig_init(void)
+{
+	sigset_t mask;
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGINT);
+	sigaddset(&mask, ctx.addr_sig); // used for address resolution
+
+	if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
+		perror("sigprocmask()");
+		abort();
+	}
+
+	ctx.sig_fd = signalfd(-1, &mask, SFD_NONBLOCK);
+
+	if (ctx.sig_fd == -1) {
+		perror("signalfd()");
+		abort();
+	}
+
+	// add the signal fd to epoll
+	struct epoll_event sig_ctl_event;
+	memset(&sig_ctl_event, 0, sizeof(sig_ctl_event));
+
+	sig_ctl_event.data.fd = ctx.sig_fd;
+	sig_ctl_event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET;
+
+	epoll_ctl(ctx.epoll_fd, EPOLL_CTL_ADD, ctx.sig_fd, &sig_ctl_event);
+
+	return 0;
 }
 
 int
@@ -61,94 +133,58 @@ rp_init(void)
 	memset(&ctx, 0, sizeof(ctx));
 	memset(&ctl_event, 0, sizeof(ctl_event));
 
-	efd = epoll_create1(0);
+	ctx.state = DISCONNECTED;
+	ctx.sock_fd = -1;
+	ctx.addr_sig = -1;
+	ctx.sig_fd = -1;
+	ctx.epoll_fd = epoll_create1(0);
 
-	if (efd == -1) {
+	if (ctx.epoll_fd == -1) {
 		perror("epoll_create1");
+		abort();
+	}
+
+	ctx.addr_sig = find_rt_signal();
+
+	if (ctx.addr_sig == -1) {
+		perror("find_rt_signal()");
 		abort();
 	}
 
 	fifo_init(&rp_read_buf);
 	fifo_init(&rp_write_buf);
 
+	if (sig_init()) {
+		perror("sig_init()");
+		abort();
+	}
+
 	return 0;
 }
 
-// attempt a non-blocking connection to the server. a few things happen
-// here:
-// 1) resolve the address.
-//   a) if the address has yet to be resolved, get the addrinfo list.
-//   b) if the address has been resolved, try the next one in the list.
-//   c) if all the addresses have been tried, then give up.
-// 2) create the socket, set it to non-blocking.
-// 3) initiate the connection.
+// start an asynchronous address resolution
 static int
-rp_tryconnect(void)
+start_resolve(void)
 {
+	static struct gaicb host;
+	static struct gaicb *host_p = &host; // no need for dynamic allocation
 	static struct addrinfo hints;
+	static struct sigevent sig;
 
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
+
+	hints.ai_family = AF_UNSPEC; // ipv4 or v6
 	hints.ai_socktype = SOCK_STREAM;
 
-	if (res == NULL) {
-		// the address has not been resolved yet.
-		rp_freeaddrinfo();
+	host.ar_service = IRC_PORT;
+	host.ar_name = IRC_HOSTNAME;
+	host.ar_request = &hints;
 
-		if (getaddrinfo(IRC_HOSTNAME, IRC_PORT, &hints, &res0) != 0) {
-			fprintf(stderr, "could not resolve hostname '%s'\n", IRC_HOSTNAME);
-			return -1;
-		}
+	sig.sigev_notify = SIGEV_SIGNAL;
+	sig.sigev_signo = ctx.addr_sig;
+	sig.sigev_value.sival_ptr = host_p;
 
-		res = res0;
-	} else {
-		// address has already been resolved.
-		res = res->ai_next;
-	}
-
-	// if the address is null here, then all have been tried
-	if (!res) {
-		return 0;
-	}
-
-	if ((sfd = socket(res->ai_family, res->ai_socktype,
-	                  res->ai_protocol)) == -1) {
-		fprintf(stderr, "failed to create socket\n");
-		return -1;
-	}
-
-	int flags = 0;
-
-	if (fcntl(sfd, F_GETFL, 0) == -1) {
-		flags = 0;
-	}
-
-	if (fcntl(sfd, F_SETFL, flags | O_NONBLOCK) == -1) {
-		fprintf(stderr, "failed to set O_NONBLOCK\n");
-		close(sfd);
-		return -1;
-	}
-
-	if (connect(sfd, res->ai_addr, res->ai_addrlen) == 0) {
-		// if connect succeeded, something went terribly wrong, because
-		// this is a non-blocking socket.
-		close(sfd);
-		return -1;
-	}
-
-	if (errno != EINPROGRESS) {
-		fprintf(stderr, "error on connect() %d\n", errno);
-		close(sfd);
-		return -1;
-	}
-
-	rp_state = RP_STATE_CONNECTING;
-
-	// listen for events on the socket
-	ctl_event.data.fd = sfd;
-	ctl_event.events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLERR | EPOLLET;
-
-	epoll_ctl(efd, EPOLL_CTL_ADD, sfd, &ctl_event);
+	getaddrinfo_a(GAI_NOWAIT, &host_p, 1, &sig);
 
 	return 0;
 }
@@ -157,15 +193,80 @@ rp_tryconnect(void)
 static int
 rp_disconnect()
 {
-	epoll_ctl(efd, EPOLL_CTL_DEL, sfd, NULL);
-	close(sfd);
+	epoll_ctl(ctx.epoll_fd, EPOLL_CTL_DEL, ctx.sock_fd, NULL);
+	close(ctx.sock_fd);
 
-	sfd = -1;
-	rp_state = RP_STATE_DISCONNECTED;
-	rp_next_connect_msec = rp_current_msec + IRC_RETRY_DELAY;
+	ctx.sock_fd = -1;
+	ctx.state = DISCONNECTED;
+	ctx.next_conn_msec = rp_current_msec + IRC_RETRY_DELAY;
 	rp_freeaddrinfo();
 
 	return 0;
+}
+
+// attempt a non-blocking connection to the server.
+static int
+rp_tryconnect(void)
+{
+	if (ctx.res == NULL) {
+		ctx.res = ctx.res0;
+	} else {
+		ctx.res = ctx.res->ai_next;
+	}
+
+	// if the address is null here, then all have been tried
+	if (ctx.res == NULL) {
+		rp_disconnect();
+
+		return 0;
+	}
+
+	if ((ctx.sock_fd = socket(ctx.res->ai_family, ctx.res->ai_socktype,
+	                          ctx.res->ai_protocol)) == -1) {
+		fprintf(stderr, "failed to create socket\n");
+		goto conn_fail;
+	}
+
+	int flags = 0;
+
+	if (fcntl(ctx.sock_fd, F_GETFL, 0) == -1) {
+		flags = 0;
+	}
+
+	if (fcntl(ctx.sock_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+		fprintf(stderr, "failed to set O_NONBLOCK\n");
+		goto conn_fail;
+	}
+
+	if (connect(ctx.sock_fd, ctx.res->ai_addr, ctx.res->ai_addrlen) == 0) {
+		// if connect succeeded, something went terribly wrong, because
+		// this is a non-blocking socket.
+		goto conn_fail;
+	}
+
+	if (errno != EINPROGRESS) {
+		fprintf(stderr, "error on connect() %d\n", errno);
+		goto conn_fail;
+	}
+
+	ctx.state = CONNECTING;
+	ctx.conn_timeout_msec = rp_current_msec + IRC_CONNECT_TIMEOUT;
+
+	// listen for events on the socket
+	ctl_event.data.fd = ctx.sock_fd;
+	ctl_event.events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLERR | EPOLLET;
+
+	epoll_ctl(ctx.epoll_fd, EPOLL_CTL_ADD, ctx.sock_fd, &ctl_event);
+
+	return 0;
+
+conn_fail:
+	if (ctx.sock_fd != -1) {
+		close(ctx.sock_fd);
+	}
+
+	ctx.next_conn_msec = rp_current_msec + IRC_RETRY_DELAY;
+	return -1;
 }
 
 // read bytes from the socket into the read buffer.
@@ -180,7 +281,7 @@ do_read(void)
 		void *p;
 
 		max_read = fifo_raw_w(&rp_read_buf, &p);
-		n_read = read(sfd, p, max_read);
+		n_read = read(ctx.sock_fd, p, max_read);
 
 		if (n_read < 0) {
 			if (errno != EAGAIN) {
@@ -190,7 +291,6 @@ do_read(void)
 
 			break;
 		} else if (n_read == 0) {
-			// TODO: handle this
 			perror("read()");
 			abort();
 		}
@@ -215,7 +315,7 @@ do_write(void)
 		void *p;
 
 		max_write = fifo_raw_r(&rp_write_buf, &p);
-		n_written = write(sfd, p, max_write);
+		n_written = write(ctx.sock_fd, p, max_write);
 
 		if (n_written < 0) {
 			if (errno != EAGAIN) {
@@ -241,7 +341,7 @@ do_write(void)
 
 // handle a single epoll event.
 static int
-rp_handleevent(struct rp_events *evs, struct epoll_event *e)
+handle_sock_event(struct rp_events *evs, struct epoll_event *e)
 {
 	if ((e->events & EPOLLRDHUP) ||
 	    (e->events & EPOLLERR) ||
@@ -257,18 +357,65 @@ rp_handleevent(struct rp_events *evs, struct epoll_event *e)
 	}
 
 	if (e->events & EPOLLOUT) {
-		if (rp_state == RP_STATE_CONNECTING) {
+		if (ctx.state == CONNECTING) {
 			// if connecting, then EPOLLOUT means the connection has
 			// succeeded.
-			ctl_event.data.fd = sfd;
+			ctl_event.data.fd = ctx.sock_fd;
 			ctl_event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET;
 
-			epoll_ctl(efd, EPOLL_CTL_MOD, sfd, &ctl_event);
+			epoll_ctl(ctx.epoll_fd, EPOLL_CTL_MOD, ctx.sock_fd, &ctl_event);
 
-			rp_state = RP_STATE_CONNECTED;
+			printf("Connected\n");
+			ctx.state = CONNECTED;
 			evs->connected = 1;
 		} else if (fifo_count(rp_write_buf) > 0) {
 			do_write();
+		}
+	}
+
+	return 0;
+}
+
+static int
+handle_sig_event(struct rp_events *evs, struct epoll_event *e)
+{
+	if ((e->events & EPOLLRDHUP) ||
+	    (e->events & EPOLLERR) ||
+	    (e->events & EPOLLHUP)) {
+		fprintf(stderr, "error handling signal\n");
+		abort();
+	}
+
+	if (e->events & EPOLLIN) {
+		struct signalfd_siginfo fdsi;
+		ssize_t s;
+
+		while ((s = read(ctx.sig_fd, &fdsi, sizeof(fdsi))) > 0) {
+			if (s != sizeof(fdsi)) {
+				perror("read(signalfd_signfo)");
+				abort();
+			}
+
+			if (fdsi.ssi_signo == SIGINT) {
+				evs->sig_int = 1;
+			} else if (fdsi.ssi_signo == (uint32_t)ctx.addr_sig) {
+				struct gaicb *host = (struct gaicb *)fdsi.ssi_ptr;
+				// address was resolved
+				ctx.res0 = host->ar_result;
+				ctx.res = NULL;
+
+				ctx.state = RESOLVED;
+			}
+		}
+
+		if (s == -1) {
+			if (errno != EAGAIN) {
+				perror("read != EGAIN");
+				abort();
+			}
+		} else if (s == 0) {
+			perror("read(sig_fd)");
+			abort();
 		}
 	}
 
@@ -280,7 +427,7 @@ rp_poll(struct rp_events *evs, int timeout)
 {
 	int n;
 
-	if (rp_state == RP_STATE_CONNECTED) {
+	if (ctx.state == CONNECTED) {
 		char update_epoll = 0;
 
 		ctl_event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLET;
@@ -312,11 +459,11 @@ rp_poll(struct rp_events *evs, int timeout)
 		}
 
 		if (update_epoll) {
-			epoll_ctl(efd, EPOLL_CTL_MOD, sfd, &ctl_event);
+			epoll_ctl(ctx.epoll_fd, EPOLL_CTL_MOD, ctx.sock_fd, &ctl_event);
 		}
 	}
 
-	n = epoll_wait(efd, events, MAX_EVENTS, timeout);
+	n = epoll_wait(ctx.epoll_fd, events, MAX_EVENTS, timeout);
 
 	if (n < 0) {
 		perror("epoll_wait");
@@ -327,22 +474,36 @@ rp_poll(struct rp_events *evs, int timeout)
 		int i;
 
 		for (i = 0; i < n; i++) {
-			rp_handleevent(evs, &events[i]);
+			if (events[i].data.fd == ctx.sock_fd) {
+				handle_sock_event(evs, &events[i]);
+			} else if (events[i].data.fd == ctx.sig_fd) {
+				handle_sig_event(evs, &events[i]);
+			}
 		}
 
 	} else {
 		evs->timeout = 1;
 	}
 
-	switch (rp_state) {
-	case RP_STATE_DISCONNECTED:
-		if (rp_current_msec >= rp_next_connect_msec) {
-			if (rp_tryconnect()) {
-				fprintf(stderr, "could not connect\n");
-				rp_next_connect_msec = rp_current_msec + IRC_RETRY_DELAY;
+	switch (ctx.state) {
+	case DISCONNECTED:
+		if (rp_current_msec >= ctx.next_conn_msec) {
+			if (start_resolve()) {
+				fprintf(stderr, "could not resolve\n");
+				abort();
 			}
+
+			ctx.state = RESOLVING;
 		}
 
+		break;
+	case CONNECTING:
+		if (rp_current_msec >= ctx.conn_timeout_msec) {
+			rp_tryconnect();
+		}
+		break;
+	case RESOLVED:
+		rp_tryconnect();
 		break;
 	default:
 		break;

@@ -9,6 +9,7 @@
 
 //#define IRC_CHAN "#my_channel"
 
+#define IRC_CONNECT_TIMEOUT (5 * 1000)
 #define IRC_RETRY_DELAY (30 * 1000)
 #define IRC_BUFFER_SZ (2 * 1024)
 

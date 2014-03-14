@@ -11,6 +11,8 @@ struct rp_events {
 	unsigned int connected:1; // the client connected
 	unsigned int disconnected:1; // the client disconnected
 	unsigned int timeout:1; // the client received no events
+
+	unsigned int sig_int:1;
 };
 
 // initialize the event system.
