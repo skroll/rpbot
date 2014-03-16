@@ -128,7 +128,7 @@ sig_init(void)
 }
 
 int
-rp_init(void)
+rp_event_init(void)
 {
 	memset(&ctx, 0, sizeof(ctx));
 	memset(&ctl_event, 0, sizeof(ctl_event));

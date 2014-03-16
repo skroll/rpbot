@@ -1,6 +1,7 @@
 #include "config.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <yajl/yajl_parse.h>
 
@@ -9,11 +10,6 @@
 static int
 rpcfg_string(void *ctx, const unsigned char *s, size_t len)
 {
-	char buf[2048];
-	memcpy(buf, s, len);
-	buf[len] = '\0';
-	printf("value: %s\n", buf);
-
 	return 1;
 }
 
@@ -32,11 +28,6 @@ rpcfg_end_map(void *ctx)
 static int
 rpcfg_map_key(void *ctx, const unsigned char *s, size_t len)
 {
-	char buf[2048];
-	memcpy(buf, s, len);
-	buf[len] = '\0';
-	printf("key: %s\n", buf);
-
 	return 1;
 }
 
@@ -54,10 +45,39 @@ static yajl_callbacks callbacks = {
 	NULL // end array
 };
 
+static void *
+rpcfg_alloc(void *ctx, size_t sz)
+{
+	printf("alloc %lu\n", sz);
+	return malloc(sz);
+}
+
+static void
+rpcfg_free(void *ctx, void *ptr)
+{
+	printf("free\n");
+	free(ptr);
+}
+
+static void *
+rpcfg_realloc(void *ctx, void *ptr, size_t sz)
+{
+	printf("realloc %lu\n", sz);
+	return realloc(ptr, sz);
+}
+
+static yajl_alloc_funcs alloc_funcs = {
+	rpcfg_alloc,
+	rpcfg_realloc,
+	rpcfg_free,
+	NULL
+};
+
 int rp_load_config(const char *path)
 {
 	char buf[2048];
-	yajl_handle hand = yajl_alloc(&callbacks, NULL, NULL);
+	yajl_handle hand = yajl_alloc(&callbacks, &alloc_funcs, NULL);
+	yajl_config(hand, yajl_allow_comments, 1);
 
 	FILE *f = fopen(path, "r");
 
@@ -87,6 +107,10 @@ int rp_load_config(const char *path)
 			break;
 		}
 	}
+
+	fclose(f);
+
+	yajl_free(hand);
 
 	return 0;
 }

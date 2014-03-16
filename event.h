@@ -17,7 +17,7 @@ struct rp_events {
 
 // initialize the event system.
 int
-rp_init(void);
+rp_event_init(void);
 
 // poll for events on the socket, block until an event is received or
 // timeout is reached.

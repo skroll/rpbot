@@ -1,7 +1,7 @@
 include config.mk
 
-SRC = rpbot.c event.c fifo.c irc_sm.c slab.c os.c configfile.c
-HDR = rpbot.h event.h fifo.h irc.h rp_math.h slab.h os.h configfile.h
+SRC = rpbot.c event.c fifo.c irc_sm.c slab.c palloc.c os.c configfile.c
+HDR = rpbot.h event.h fifo.h irc.h rp_math.h slab.h palloc.h os.h configfile.h
 OBJ = ${SRC:.c=.o}
 
 all: rpbot

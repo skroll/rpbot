@@ -21,9 +21,9 @@ struct irc_state {
 	IRC_STR(params, 2048)
 };
 
-void irc_init(struct irc_state *);
+void rp_irc_init(struct irc_state *);
 
-int irc_parse(struct irc_state *state, const char *src, size_t *len);
+int rp_irc_parse(struct irc_state *state, const char *src, size_t *len);
 
 #endif // IRC_H
 

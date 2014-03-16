@@ -103,14 +103,14 @@ main := message;
 }%%
 
 void
-irc_init(struct irc_state *s)
+rp_irc_init(struct irc_state *s)
 {
     memset(s, 0, sizeof(*s));
     s->cs = %%{ write start; }%%;
 }
 
 int
-irc_parse(struct irc_state *state, const char *src, size_t *len)
+rp_irc_parse(struct irc_state *state, const char *src, size_t *len)
 {
   int cs = state->cs;
 

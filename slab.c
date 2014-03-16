@@ -46,9 +46,6 @@ static uint64_t rp_slab_max_size = 0;
 static uint64_t rp_slab_exact_size;
 static uint64_t rp_slab_exact_shift;
 
-#define rp_align_ptr(p, a) \
-	(u_char *)(((uintptr_t)(p) + ((uintptr_t)a - 1)) & ~((uintptr_t)a - 1))
-
 void
 rp_slab_init(rp_slab_pool_t *pool)
 {

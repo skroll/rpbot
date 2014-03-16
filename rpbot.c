@@ -10,6 +10,7 @@
 #include "event.h"
 #include "irc.h"
 #include "slab.h"
+#include "palloc.h"
 #include "configfile.h"
 
 #define TIMEOUT 500
@@ -58,13 +59,9 @@ main(int argc, const char **argv)
 	(void)argv;
 
 	rp_os_init();
-	rp_init();
-	irc_init(&istate);
+	rp_event_init();
+	rp_irc_init(&istate);
 
-
-	rp_load_config("./rpbot.cfg");
-
-	return -1;
 	while (1) {
 		struct rp_events evs;
 		memset(&evs, 0, sizeof(evs));
@@ -94,7 +91,7 @@ main(int argc, const char **argv)
 			void *p;
 			size_t len = fifo_raw_r(&rp_read_buf, &p);
 
-			if (irc_parse(&istate, p, &len)) {
+			if (rp_irc_parse(&istate, p, &len)) {
 				handle_irc_msg(&istate);
 			}
 
