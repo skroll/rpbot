@@ -7,7 +7,7 @@ INCS = -I.
 
 LIBS = -lanl
 
-CPPFLAGS = -DVERSION=\"${VERSION}\" -D_GNU_SOURCE
+CPPFLAGS = -DVERSION=\"${VERSION}\" -D_GNU_SOURCE -DRPBOT_PTR_SIZE=8
 CFLAGS += -g -std=c99 -pedantic -Wall -Wvariadic-macros -Os ${INCS} ${CPPFLAGS}
 
 LDFLAGS += -g ${LIBS}

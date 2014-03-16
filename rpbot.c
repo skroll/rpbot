@@ -5,9 +5,11 @@
 #include <sys/time.h>
 
 #include "rpbot.h"
+#include "os.h"
 #include "fifo.h"
 #include "event.h"
 #include "irc.h"
+#include "slab.h"
 
 #define TIMEOUT 500
 
@@ -54,6 +56,7 @@ main(int argc, const char **argv)
 	(void)argc;
 	(void)argv;
 
+	rp_os_init();
 	rp_init();
 	irc_init(&istate);
 
