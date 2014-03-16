@@ -1,25 +1,22 @@
-#include "config.h"
-
 #include <string.h>
 #include <stdlib.h>
-
-#include "fifo.h"
+#include <rp_fifo.h>
 
 void
-fifo_init(fifo_buffer_t *buf)
+rp_fifo_init(rp_fifo_t *buf)
 {
 	buf->count = 0;
 	buf->head = &buf->buffer[0];
 	buf->tail = &buf->buffer[0];
-	buf->end = &buf->buffer[IRC_BUFFER_SZ];
+	buf->end = &buf->buffer[0] + buf->capacity;
 }
 
 size_t
-fifo_put(fifo_buffer_t *buf, void *src, size_t n)
+rp_fifo_put(rp_fifo_t *buf, void *src, size_t n)
 {
 	char *p = src;
 
-	if ((n = rp_min(n, fifo_bytes_free(*buf))) == 0) {
+	if ((n = rp_min(n, rp_fifo_bytes_free(buf))) == 0) {
 		return 0;
 	}
 
@@ -32,14 +29,14 @@ fifo_put(fifo_buffer_t *buf, void *src, size_t n)
 		p += s;
 		n -= s;
 
-		fifo_reserve(buf, s);
+		rp_fifo_reserve(buf, s);
 	}
 
 	return ret;
 }
 
 size_t
-fifo_get(fifo_buffer_t *buf, void *dest, size_t n)
+rp_fifo_get(rp_fifo_t *buf, void *dest, size_t n)
 {
 	char *p = dest;
 
@@ -56,7 +53,7 @@ fifo_get(fifo_buffer_t *buf, void *dest, size_t n)
 		p += s;
 		n -= s;
 
-		fifo_consume(buf, s);
+		rp_fifo_consume(buf, s);
 	}
 
 	return ret;

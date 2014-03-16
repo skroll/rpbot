@@ -1,0 +1,21 @@
+{
+  "config": {
+    "servers": [
+      {
+        "host": "irc.server1.com",
+        "port": "6667"
+      },
+      {
+        "host": "irc.server2.com",
+        "port": "6667"
+      }
+    ],
+    "identity": {
+      "nicks": ["rpbot", "rpbot2", "rpbot3"],
+      "name": "rpbot",
+      "login": "rpbot"
+    },
+    "channels": [ "#rpbot" ]
+  }
+}
+
