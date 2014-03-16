@@ -5,7 +5,7 @@ MANPREFIX = ${PREFIX}/share/man
 
 INCS = -I.
 
-LIBS = -lanl
+LIBS = -lanl -lyajl
 
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_GNU_SOURCE -DRPBOT_PTR_SIZE=8
 CFLAGS += -g -std=c99 -pedantic -Wall -Wvariadic-macros -Os ${INCS} ${CPPFLAGS}

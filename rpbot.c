@@ -10,6 +10,7 @@
 #include "event.h"
 #include "irc.h"
 #include "slab.h"
+#include "configfile.h"
 
 #define TIMEOUT 500
 
@@ -60,6 +61,10 @@ main(int argc, const char **argv)
 	rp_init();
 	irc_init(&istate);
 
+
+	rp_load_config("./rpbot.cfg");
+
+	return -1;
 	while (1) {
 		struct rp_events evs;
 		memset(&evs, 0, sizeof(evs));
