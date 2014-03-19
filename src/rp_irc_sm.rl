@@ -40,7 +40,7 @@ action message_code_start {
 }
 
 action message_code {
-  ctx->msg.code.buf[ctx->msg.code.len] = fc;
+  ctx->msg.code.ptr[ctx->msg.code.len] = fc;
   ctx->msg.code.len++;
 }
 
@@ -52,7 +52,7 @@ action params_start {
 }
 
 action params {
-  ctx->msg.params.buf[ctx->msg.params.len] = fc;
+  ctx->msg.params.ptr[ctx->msg.params.len] = fc;
   ctx->msg.params.len++;
 }
 
@@ -102,12 +102,7 @@ message        = ( ":" prefix SPACE )? ( code $ message_code > message_code_star
 main := message;
 }%%
 
-void
-rp_irc_init(struct rp_irc_ctx *ctx)
-{
-    memset(ctx, 0, sizeof(*ctx));
-    ctx->cs = %%{ write start; }%%;
-}
+int rp_irc_csstart = %%{ write start; }%%;
 
 int
 rp_irc_parse(struct rp_irc_ctx *ctx, const char *src, size_t *len)

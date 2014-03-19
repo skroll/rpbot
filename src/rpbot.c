@@ -38,59 +38,30 @@ rp_updatetime(void)
 	rp_current_msec = (uintptr_t)sec * 1000 + msec;
 }
 
-static void
-handle_irc_msg(struct rp_ctx *ctx, struct rp_irc_msg *msg)
-{
-	if (msg->code.len == 3) {
-		if (strncmp(msg->code.buf, "004", 3) == 0) {
-			rp_fifo_putstr(ctx->write_buf, "JOIN ");
-			rp_fifo_putstring(ctx->write_buf, &ctx->cfg.channels->name);
-			rp_fifo_putstr(ctx->write_buf, "\r\n");
-		}
-	} else if (msg->code.len == 4) {
-		if (strncmp(msg->code.buf, "PING", 4) == 0) {
-			rp_fifo_putstr(ctx->write_buf, "PONG");
-			rp_fifo_put(ctx->write_buf, msg->params.buf, msg->params.len);
-			rp_fifo_putstr(ctx->write_buf, "\r\n");
-		}
-	}
-}
-
 #define IRC_BUFFER_SZ 2048
 
 static int
 main_loop(struct rp_ctx *ctx)
 {
-	struct rp_irc_ctx    irc_ctx;
-	struct rp_event_ctx  ev_ctx;
+	struct rp_irc_ctx   *irc_ctx;
+	struct rp_event_ctx *ev_ctx;
 
-	rp_event_init(ctx->pool, &ev_ctx);
-	rp_irc_init(&irc_ctx);
-
-	ev_ctx.cfg = &ctx->cfg;
-	ev_ctx.read_buf = ctx->read_buf;
-	ev_ctx.write_buf = ctx->write_buf;
+	rp_event_init(ctx->pool, &ctx->cfg, ctx->read_buf, ctx->write_buf, &ev_ctx);
+	rp_irc_init(ctx->pool, &ctx->cfg, ctx->write_buf, &irc_ctx);
 
 	while (1) {
 		struct rp_events evs;
 		memset(&evs, 0, sizeof(evs));
 
 		rp_updatetime();
-		int r = rp_event_poll(&ev_ctx, &evs, TIMEOUT);
+		int r = rp_event_poll(ev_ctx, &evs, TIMEOUT);
 
 		if (r < 0) {
-			// failure
 			return -1;
 		} else if (r > 0) {
 			if (evs.connected) {
 				fprintf(stderr, "connected to host\n");
-				rp_fifo_putstr(ctx->write_buf, "NICK ");
-				rp_fifo_putstring(ctx->write_buf, &ctx->cfg.identity.nicks->str);
-				rp_fifo_putstr(ctx->write_buf, "\r\nUSER ");
-				rp_fifo_putstring(ctx->write_buf, &ctx->cfg.identity.login);
-				rp_fifo_putstr(ctx->write_buf, " 8 * :");
-				rp_fifo_putstring(ctx->write_buf, &ctx->cfg.identity.name);
-				rp_fifo_putstr(ctx->write_buf, "\r\n");
+				rp_irc_onconnect(irc_ctx);
 			}
 
 			if (evs.disconnected) {
@@ -107,8 +78,8 @@ main_loop(struct rp_ctx *ctx)
 			void *p;
 			size_t len = rp_fifo_raw_r(ctx->read_buf, &p);
 
-			if (rp_irc_parse(&irc_ctx, p, &len)) {
-				handle_irc_msg(ctx, &irc_ctx.msg);
+			if (rp_irc_parse(irc_ctx, p, &len)) {
+				rp_irc_handle(irc_ctx);
 			}
 
 			rp_fifo_consume(ctx->read_buf, len);
@@ -123,6 +94,7 @@ rp_init(struct rp_ctx *ctx, int argc, const char **argv)
 {
 	const char *config_path;
 
+	// os initialization should always come first
 	rp_os_init();
 
 	if (rp_parse_opts(argc, argv, &config_path)) {
@@ -133,7 +105,6 @@ rp_init(struct rp_ctx *ctx, int argc, const char **argv)
 	if (!ctx->pool) {
 		return -1;
 	}
-
 	memset(&ctx->cfg, 0, sizeof(ctx->cfg));
 
 	if (rp_config_load(ctx->pool, config_path, &ctx->cfg)) {

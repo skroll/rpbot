@@ -30,5 +30,7 @@ typedef struct rp_str_list {
 	struct rp_str_list *next;
 } rp_str_list_t;
 
+#define rp_string(str) { sizeof(str) - 1, str }
+
 #endif // RP_OS_H
 

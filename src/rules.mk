@@ -9,7 +9,6 @@ OBJS_$(d) := $(d)/util/rp_fifo.o \
              $(d)/rp_config.o \
              $(d)/rp_event.o \
              $(d)/rp_irc.o \
-             $(d)/rp_irc_sm.o \
              $(d)/rp_options.o \
              $(d)/rpbot.o
 
@@ -22,6 +21,7 @@ TGT_BIN := $(TGT_BIN) $(TGTS_$(d))
 $(OBJS_$(d)): CF_TGT := -I$(d) -I$(d)/util
 
 $(d)/rp_irc_sm.c: $(d)/rp_irc_sm.rl
+$(d)/rp_irc.o: $(d)/rp_irc_sm.c
 
 $(d)/rpbot: LL_TGT := -lyajl -lanl
 $(d)/rpbot: $(OBJS_$(d))
