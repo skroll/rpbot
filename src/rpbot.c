@@ -118,37 +118,60 @@ main_loop(struct rp_ctx *ctx)
 	return 0;
 }
 
-int
-main(int argc, const char **argv)
+static int
+rp_init(struct rp_ctx *ctx, int argc, const char **argv)
 {
-	struct rp_ctx ctx;
 	const char *config_path;
-
-	(void)argc;
-	(void)argv;
 
 	rp_os_init();
 
 	if (rp_parse_opts(argc, argv, &config_path)) {
-		exit(0);
+		return 1;
 	}
 
-
-	ctx.pool = rp_create_pool(RP_DEFAULT_POOL_SIZE);
-	memset(&ctx.cfg, 0, sizeof(ctx.cfg));
-
-	if (rp_config_load(ctx.pool, config_path, &ctx.cfg)) {
-		exit(0);
+	ctx->pool = rp_create_pool(RP_DEFAULT_POOL_SIZE);
+	if (!ctx->pool) {
+		return -1;
 	}
 
-	ctx.read_buf = rp_palloc(ctx.pool, sizeof(*ctx.read_buf) + IRC_BUFFER_SZ);
-	ctx.write_buf = rp_palloc(ctx.pool, sizeof(*ctx.write_buf) + IRC_BUFFER_SZ);
+	memset(&ctx->cfg, 0, sizeof(ctx->cfg));
 
-	ctx.read_buf->capacity = IRC_BUFFER_SZ;
-	ctx.write_buf->capacity = IRC_BUFFER_SZ;
+	if (rp_config_load(ctx->pool, config_path, &ctx->cfg)) {
+		return 1;
+	}
 
-	rp_fifo_init(ctx.read_buf);
-	rp_fifo_init(ctx.write_buf);
+	ctx->read_buf = rp_palloc(ctx->pool, sizeof(*ctx->read_buf) + IRC_BUFFER_SZ);
+	if (!ctx->read_buf) {
+		return -1;
+	}
+
+	ctx->write_buf = rp_palloc(ctx->pool, sizeof(*ctx->write_buf) + IRC_BUFFER_SZ);
+	if (!ctx->write_buf) {
+		return -1;
+	}
+
+	ctx->read_buf->capacity = IRC_BUFFER_SZ;
+	ctx->write_buf->capacity = IRC_BUFFER_SZ;
+
+	rp_fifo_init(ctx->read_buf);
+	rp_fifo_init(ctx->write_buf);
+
+	return 0;
+}
+
+int
+main(int argc, const char **argv)
+{
+	int            ret;
+	struct rp_ctx  ctx;
+
+	if ((ret = rp_init(&ctx, argc, argv))) {
+		if (ret < 0) {
+			exit(ret);
+		}
+
+		exit(0);
+	}
 
 	main_loop(&ctx);
 
