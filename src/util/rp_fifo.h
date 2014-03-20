@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <rp_math.h>
-#include <rp_os.h>
+#include <rp_string.h>
 
 struct rp_fifo {
 	size_t    capacity;

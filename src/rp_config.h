@@ -1,7 +1,7 @@
 #ifndef RP_CONFIG_H
 #define RP_CONFIG_H
 
-#include <rp_os.h>
+#include <rp_string.h>
 #include <rp_palloc.h>
 
 struct rp_config_server {
