@@ -12,7 +12,7 @@ struct rp_irc_ctx {
 	struct rp_config       *cfg;
 	struct rp_irc_ev_hash  *hash;
 	rp_fifo_t              *write_buf;
-	struct rp_irc_msg       msg;
+	struct rp_ircsm_msg     msg;
 	int                     cs;
 };
 
@@ -55,7 +55,7 @@ handle_ping(struct rp_irc_ctx *ctx)
 {
 	printf("PING?! PONG\n");
 
-	rp_fifo_putstr(ctx->write_buf, "PONG");
+	rp_fifo_putstr(ctx->write_buf, "PONG ");
 	rp_fifo_putstring(ctx->write_buf, &ctx->msg.params);
 	rp_fifo_putstr(ctx->write_buf, "\r\n");
 }
@@ -86,9 +86,9 @@ rp_irc_init(rp_pool_t *pool, struct rp_config *cfg, rp_fifo_t *write_buf,
 	struct rp_irc_ctx *c = rp_palloc(pool, sizeof(*c));
 	memset(c, 0, sizeof(*c));
 
-	rp_irc_sm_init(&c->cs);
-	c->msg.code.ptr = rp_palloc(pool, 32);
-	c->msg.params.ptr = rp_palloc(pool, 512);
+	rp_ircsm_init(&c->cs);
+	rp_ircsm_msg_init(pool, &c->msg);
+
 	c->pool = pool;
 	c->cfg = cfg;
 	c->write_buf = write_buf;
@@ -120,7 +120,7 @@ rp_irc_handle(struct rp_irc_ctx *ctx)
 int
 rp_irc_parse(struct rp_irc_ctx *ctx, const char *src, size_t *len)
 {
-	return rp_irc_sm_parse(&ctx->msg, &ctx->cs, src, len);
+	return rp_ircsm_parse(&ctx->msg, &ctx->cs, src, len);
 }
 
 int

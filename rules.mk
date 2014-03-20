@@ -6,6 +6,9 @@ all: targets
 dir := src
 include $(dir)/rules.mk
 
+dir := tests
+include $(dir)/rules.mk
+
 %.o: %.c
 	$(COMP)
 
@@ -19,7 +22,7 @@ include $(dir)/rules.mk
 	$(COMPLINK)
 
 .PHONY: targets
-targets: $(TGT_BIN) $(TGT_LIB)
+targets: $(TGT_BIN) $(TGT_LIB) $(TGT_TESTS)
 
 .PHONY: clean
 clean:

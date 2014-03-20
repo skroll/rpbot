@@ -11,28 +11,66 @@ write data;
 %%{
 machine irc;
 
+action msg_start {
+  msg->is_hostmask = 0;
+  msg->is_servername = 0;
+}
+
+action prefix_start {
+  msg->prefix.len = 0;
+}
+
+action prefix {
+  msg->prefix.ptr[msg->prefix.len++] = fc;
+}
+
 action prefix_servername_start {
+  msg->servername.ptr = &msg->prefix.ptr[0];
+  msg->servername.len = 0;
 }
 
 action prefix_servername {
+  msg->servername.len++;
 }
 
 action prefix_servername_finish {
+  msg->is_servername = 1;
 }
 
 action prefix_hostmask_start {
+  msg->hostmask.user.len = 0;
+  msg->hostmask.host.len = 0;
+}
+
+action hostmask_nickname_start {
+  msg->hostmask.nick.len = 0;
+  msg->hostmask.nick.ptr = &msg->prefix.ptr[msg->prefix.len];
 }
 
 action hostmask_nickname {
+  msg->hostmask.nick.len++;
+}
+
+action hostmask_user_start {
+  msg->hostmask.user.len = 0;
+  msg->hostmask.user.ptr = &msg->prefix.ptr[msg->prefix.len];
 }
 
 action hostmask_user {
+  msg->hostmask.user.len++;
+}
+
+action hostmask_host_start {
+  msg->hostmask.host.len = 0;
+  msg->hostmask.host.ptr = &msg->prefix.ptr[msg->prefix.len];
 }
 
 action hostmask_host {
+  msg->hostmask.host.len++;
 }
 
 action prefix_hostmask_finish {
+  msg->is_hostmask = 1;
 }
 
 action message_code_start {
@@ -40,8 +78,7 @@ action message_code_start {
 }
 
 action message_code {
-  msg->code.ptr[msg->code.len] = fc;
-  msg->code.len++;
+  msg->code.ptr[msg->code.len++] = fc;
 }
 
 action message_code_finish {
@@ -52,8 +89,9 @@ action params_start {
 }
 
 action params {
-  msg->params.ptr[msg->params.len] = fc;
-  msg->params.len++;
+  if (!(msg->params.len == 0 && fc == ' ')) {
+    msg->params.ptr[msg->params.len++] = fc;
+  }
 }
 
 action params_1_start {
@@ -89,21 +127,21 @@ ip4addr        = digit{1,3} "." digit{1,3} "." digit{1,3} "." digit{1,3};
 ip6addr        = ( xdigit+ ( ":" xdigit+ ){7} ) | ( "0:0:0:0:0:" ( "0" | "FFFF"i ) ":" ip4addr );
 hostaddr       = ip4addr | ip6addr;
 host           = hostname | hostaddr;
-hostmask       = nickname $ hostmask_nickname ( ( "!" user $ hostmask_user )? "@" host $ hostmask_host )?;
+hostmask       = nickname $ hostmask_nickname > hostmask_nickname_start ( ( "!" user $ hostmask_user > hostmask_user_start )? "@" host $ hostmask_host > hostmask_host_start )?;
 prefix         = ( servername $ prefix_servername > prefix_servername_start % prefix_servername_finish ) | ( hostmask > prefix_hostmask_start % prefix_hostmask_finish );
 code           = alpha+ | digit{3};
 middle         = nospcrlfcl ( ":" | nospcrlfcl )*;
 trailing       = ( ":" | " " | nospcrlfcl )*;
 params_1       = ( SPACE middle $ params_1 > params_1_start ){,14} ( SPACE ":"  trailing $ params_1 > params_1_start )?;
 params_2       = ( SPACE middle $ params_2 > params_2_start ){14}  ( SPACE ":"? trailing $ params_2 > params_2_start )?;
-params         =  ( params_1 % params_1_finish | params_2 % params_2_finish ) $ params > params_start;
-message        = ( ":" prefix SPACE )? ( code $ message_code > message_code_start % message_code_finish ) params? crlf @ { fbreak; };
+params         = ( params_1 % params_1_finish | params_2 % params_2_finish ) $ params > params_start;
+message        = (( ":" prefix $ prefix > prefix_start SPACE )? ( code $ message_code > message_code_start % message_code_finish ) params? crlf @ { fbreak; }) > msg_start;
 
 main := message;
 }%%
 
 int
-rp_irc_sm_init(int *state)
+rp_ircsm_init(int *state)
 {
   *state = %%{ write start; }%%;
 
@@ -111,7 +149,18 @@ rp_irc_sm_init(int *state)
 }
 
 int
-rp_irc_sm_parse(struct rp_irc_msg *msg, int *state, const char *src, size_t *len)
+rp_ircsm_msg_init(rp_pool_t *pool, struct rp_ircsm_msg *msg)
+{
+  memset(msg, 0, sizeof(*msg));
+  msg->prefix.ptr = rp_palloc(pool, 64);
+  msg->code.ptr = rp_palloc(pool, 32);
+  msg->params.ptr = rp_palloc(pool, 512);
+
+  return 0;
+}
+
+int
+rp_ircsm_parse(struct rp_ircsm_msg *msg, int *state, const char *src, size_t *len)
 {
   int cs = *state;
   const char *p = src;
