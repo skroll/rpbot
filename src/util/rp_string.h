@@ -15,5 +15,8 @@ typedef struct rp_str_list {
 
 #define rp_string(str) { sizeof(str) - 1, str }
 
+int rp_strtoken(rp_str_t *str, rp_str_t *tokens);
+int rp_strstr(rp_str_t *in, rp_str_t *str);
+
 #endif // RP_STRING_H
 
