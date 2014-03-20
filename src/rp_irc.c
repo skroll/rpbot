@@ -5,11 +5,7 @@
 #include <utlist.h>
 #include <rp_irc.h>
 #include <rp_palloc.h>
-
-struct rp_irc_msg {
-	rp_str_t  code;
-	rp_str_t  params;
-};
+#include <rp_ircsm.h>
 
 struct rp_irc_ctx {
 	rp_pool_t              *pool;
@@ -19,8 +15,6 @@ struct rp_irc_ctx {
 	struct rp_irc_msg       msg;
 	int                     cs;
 };
-
-#include "rp_irc_sm.c"
 
 typedef void (* rp_ev_handler_t)(struct rp_irc_ctx *ctx);
 
@@ -34,8 +28,6 @@ struct rp_irc_ev_hash {
 	struct rp_irc_ev *ev;
 	UT_hash_handle    hh;
 };
-
-extern int rp_irc_csstart;
 
 static void
 register_handler(struct rp_irc_ctx *ctx, rp_str_t *cmd,
@@ -94,7 +86,7 @@ rp_irc_init(rp_pool_t *pool, struct rp_config *cfg, rp_fifo_t *write_buf,
 	struct rp_irc_ctx *c = rp_palloc(pool, sizeof(*c));
 	memset(c, 0, sizeof(*c));
 
-	c->cs = rp_irc_csstart;
+	rp_irc_sm_init(&c->cs);
 	c->msg.code.ptr = rp_palloc(pool, 32);
 	c->msg.params.ptr = rp_palloc(pool, 512);
 	c->pool = pool;
@@ -123,6 +115,12 @@ rp_irc_handle(struct rp_irc_ctx *ctx)
 	}
 
 	return 0;
+}
+
+int
+rp_irc_parse(struct rp_irc_ctx *ctx, const char *src, size_t *len)
+{
+	return rp_irc_sm_parse(&ctx->msg, &ctx->cs, src, len);
 }
 
 int

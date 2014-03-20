@@ -1,5 +1,5 @@
 config.h
-rp_irc_sm.c
+rp_ircsm.c
 *.o
 *.o.d
 *.a

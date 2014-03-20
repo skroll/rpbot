@@ -7,6 +7,9 @@ d              := $(dir)
 dir := $(d)/util
 include $(dir)/rules.mk
 
+dir := $(d)/ircsm
+include $(dir)/rules.mk
+
 OBJS_$(d) := $(d)/rp_config.o \
              $(d)/rp_event.o \
              $(d)/rp_irc.o \
@@ -14,18 +17,15 @@ OBJS_$(d) := $(d)/rp_config.o \
              $(d)/rpbot.o
 
 DEPS_$(d) := $(OBJS_$(d):%=%.d)
-CLEAN := $(CLEAN) $(OBJS_$(d)) $(DEPS_$(d)) $(d)/rp_irc_sm.c $(d)/rpbot
+CLEAN := $(CLEAN) $(OBJS_$(d)) $(DEPS_$(d)) $(d)/rpbot
 
 TGTS_$(d) := $(d)/rpbot
 TGT_BIN := $(TGT_BIN) $(TGTS_$(d))
 
-$(OBJS_$(d)): CF_TGT := -I$(d) -I$(d)/util
+$(OBJS_$(d)): CF_TGT := -I$(d) -I$(d)/util -I$(d)/ircsm
 
-$(d)/rp_irc_sm.c: $(d)/rp_irc_sm.rl
-$(d)/rp_irc.o: $(d)/rp_irc_sm.c
-
-$(d)/rpbot: LL_TGT := -lyajl -lanl $(d)/util/util.a
-$(d)/rpbot: $(OBJS_$(d)) $(d)/util/util.a
+$(d)/rpbot: LL_TGT := -lyajl -lanl $(d)/util/util.a $(d)/ircsm/ircsm.a
+$(d)/rpbot: $(OBJS_$(d)) $(d)/util/util.a $(d)/ircsm/ircsm.a
 	$(LINK)
 
 # standard

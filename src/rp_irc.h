@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <rp_config.h>
 #include <rp_palloc.h>
-#include <rp_os.h>
 #include <rp_fifo.h>
 
 struct rp_irc_ctx;

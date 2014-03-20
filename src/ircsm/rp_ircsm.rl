@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
-#include <rp_irc.h>
+#include <rp_ircsm.h>
 
 %%{
 machine irc;
@@ -36,24 +36,24 @@ action prefix_hostmask_finish {
 }
 
 action message_code_start {
-  ctx->msg.code.len = 0;
+  msg->code.len = 0;
 }
 
 action message_code {
-  ctx->msg.code.ptr[ctx->msg.code.len] = fc;
-  ctx->msg.code.len++;
+  msg->code.ptr[msg->code.len] = fc;
+  msg->code.len++;
 }
 
 action message_code_finish {
 }
 
 action params_start {
-  ctx->msg.params.len = 0;
+  msg->params.len = 0;
 }
 
 action params {
-  ctx->msg.params.ptr[ctx->msg.params.len] = fc;
-  ctx->msg.params.len++;
+  msg->params.ptr[msg->params.len] = fc;
+  msg->params.len++;
 }
 
 action params_1_start {
@@ -102,25 +102,29 @@ message        = ( ":" prefix SPACE )? ( code $ message_code > message_code_star
 main := message;
 }%%
 
-int rp_irc_csstart = %%{ write start; }%%;
+int
+rp_irc_sm_init(int *state)
+{
+  *state = %%{ write start; }%%;
+
+  return 0;
+}
 
 int
-rp_irc_parse(struct rp_irc_ctx *ctx, const char *src, size_t *len)
+rp_irc_sm_parse(struct rp_irc_msg *msg, int *state, const char *src, size_t *len)
 {
-  int cs = ctx->cs;
-
+  int cs = *state;
   const char *p = src;
-  const char *pe = (const char *)((uintptr_t)src + *len);
+  const char *pe = (const char *)((uintptr_t)p + *len);
 
   %%write init nocs;
   %%write exec;
 
-  ctx->cs = cs;
-
+  *state = cs;
   *len = *len - (uintptr_t)(pe - p);
 
   if (cs >= %%{ write first_final; }%%) {
-    ctx->cs = %%{ write start; }%%;
+    *state = %%{ write start; }%%;
     return 1;
   }
 
