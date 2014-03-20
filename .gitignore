@@ -2,6 +2,7 @@ config.h
 rp_irc_sm.c
 *.o
 *.o.d
+*.a
 rpbot
 .ycm_extra_conf.py
 .ycm_extra_conf.pyc

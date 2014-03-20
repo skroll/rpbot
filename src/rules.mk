@@ -1,12 +1,13 @@
+# standard
 sp             := $(sp).x
 dirstack_$(sp) := $(d)
 d              := $(dir)
 
-OBJS_$(d) := $(d)/util/rp_fifo.o \
-             $(d)/util/rp_os.o \
-             $(d)/util/rp_palloc.o \
-             $(d)/util/rp_slab.o \
-             $(d)/rp_config.o \
+# subdirectories
+dir := $(d)/util
+include $(dir)/rules.mk
+
+OBJS_$(d) := $(d)/rp_config.o \
              $(d)/rp_event.o \
              $(d)/rp_irc.o \
              $(d)/rp_options.o \
@@ -23,10 +24,11 @@ $(OBJS_$(d)): CF_TGT := -I$(d) -I$(d)/util
 $(d)/rp_irc_sm.c: $(d)/rp_irc_sm.rl
 $(d)/rp_irc.o: $(d)/rp_irc_sm.c
 
-$(d)/rpbot: LL_TGT := -lyajl -lanl
-$(d)/rpbot: $(OBJS_$(d))
+$(d)/rpbot: LL_TGT := -lyajl -lanl $(d)/util/util.a
+$(d)/rpbot: $(OBJS_$(d)) $(d)/util/util.a
 	$(LINK)
 
+# standard
 -include $(DEPS_$(d))
 d  := $(dirstack_$(sp))
 sp := $(basename $(sp))
